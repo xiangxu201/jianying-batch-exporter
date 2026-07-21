@@ -1,0 +1,8 @@
+src/**/bin/
+src/**/obj/
+tests/**/bin/
+tests/**/obj/
+cache/
+dist/settings.json
+dist/cache/
+*.processing.mp4
