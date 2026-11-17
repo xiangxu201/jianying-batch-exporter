@@ -9,6 +9,28 @@ static void Assert(bool condition, string message)
     Console.WriteLine("PASS: " + message);
 }
 
+if (args is ["--sample", var inputPath, var outputDirectory])
+{
+    var sampleFfmpeg = new FfmpegService();
+    if (sampleFfmpeg.ExecutablePath is null) throw new InvalidOperationException("FFmpeg is unavailable.");
+    var sampleOutput = await sampleFfmpeg.ProcessAsync(
+        inputPath,
+        outputDirectory,
+        Path.GetFileNameWithoutExtension(inputPath) + "_integrated",
+        VerticalMode.BlackBars,
+        RotationDirection.None,
+        0,
+        100,
+        VideoFilterPreset.None,
+        CompressionPreset.Efficient576p,
+        1600,
+        128,
+        1.0m,
+        Path.Combine(AppContext.BaseDirectory, "watermark.png"));
+    Console.WriteLine($"SAMPLE_OUTPUT={sampleOutput}");
+    return;
+}
+
 var runRoot = Path.Combine(Path.GetTempPath(), $"jianying-100-stress-{Guid.NewGuid():N}");
 var inputRoot = Path.Combine(runRoot, "input");
 var outputRoot = Path.Combine(runRoot, "output");
@@ -33,7 +55,16 @@ try
         items,
         outputRoot,
         VerticalMode.CenterCrop,
+        RotationDirection.Clockwise,
+        90,
+        110,
+        VideoFilterPreset.Vivid,
+        CompressionPreset.Efficient720p,
+        4000,
+        128,
         1.1m,
+
+        null,
         ffmpeg,
         new ImmediateProgress<BatchItemProgress>(_ => progressEvents++));
     timer.Stop();
@@ -45,12 +76,51 @@ try
     var invalidResolution = new List<string>();
     foreach (var output in outputs)
     {
-        if (!await Is1080By1920Async(ffmpeg.ExecutablePath!, output)) invalidResolution.Add(output);
+        if (!await Is720By1280Async(ffmpeg.ExecutablePath!, output)) invalidResolution.Add(output);
     }
-    Assert(invalidResolution.Count == 0, "all 100 outputs are exactly 1080x1920");
+    Assert(invalidResolution.Count == 0, "all 100 outputs are exactly 720x1280");
     Assert(!Directory.EnumerateFiles(outputRoot, "*.processing.mp4").Any(), "leave no unfinished processing files");
     Assert(progressEvents >= 200, "report start and completion state for every file");
     Console.WriteLine($"100-file elapsed: {timer.Elapsed}");
+
+    var visualRoot = Path.Combine(runRoot, "visual-matrix");
+    var rotations = new[]
+    {
+        (RotationDirection.None, 0),
+        (RotationDirection.Clockwise, 1),
+        (RotationDirection.CounterClockwise, 3),
+        (RotationDirection.Clockwise, 90),
+        (RotationDirection.CounterClockwise, 90),
+        (RotationDirection.Clockwise, 180)
+    };
+
+    var zooms = new[] { 90, 100, 110, 120 };
+    var verticalModes = new[] { VerticalMode.CenterCrop, VerticalMode.BlurredBackground, VerticalMode.BlackBars };
+    var presets = Enum.GetValues<VideoFilterPreset>();
+    var visualOutputs = new List<string>();
+    for (var index = 0; index < presets.Length; index++)
+    {
+        visualOutputs.Add(await ffmpeg.ProcessAsync(
+            seed,
+            visualRoot,
+            $"visual-{index}",
+            verticalModes[index % verticalModes.Length],
+            rotations[index % rotations.Length].Item1,
+            rotations[index % rotations.Length].Item2,
+            zooms[index % zooms.Length],
+            presets[index],
+            CompressionPreset.Efficient720p,
+            4000,
+            128,
+            1.0m,
+            null));
+    }
+    Assert(visualOutputs.Count == presets.Length && visualOutputs.All(path => new FileInfo(path).Length > 0),
+        "all vertical mode, rotation, zoom, and filter matrix outputs are non-empty");
+    foreach (var output in visualOutputs)
+    {
+        Assert(await Is720By1280Async(ffmpeg.ExecutablePath!, output), "visual matrix output remains 720x1280");
+    }
 
     var draftJson = Path.Combine(runRoot, "draft-100.json");
     await File.WriteAllTextAsync(draftJson, BuildSyntheticDraftJson());
@@ -96,7 +166,7 @@ static async Task CreateOneFrameVideoAsync(string ffmpegPath, string outputPath)
     if (process.ExitCode != 0) throw new InvalidOperationException(stderr);
 }
 
-static async Task<bool> Is1080By1920Async(string ffmpegPath, string inputPath)
+static async Task<bool> Is720By1280Async(string ffmpegPath, string inputPath)
 {
     var startInfo = new ProcessStartInfo
     {
@@ -113,7 +183,7 @@ static async Task<bool> Is1080By1920Async(string ffmpegPath, string inputPath)
     await process.WaitForExitAsync();
     var stderr = await stderrTask;
     _ = await stdoutTask;
-    return Regex.IsMatch(stderr, @"Video:.*\b1080x1920\b", RegexOptions.IgnoreCase);
+    return Regex.IsMatch(stderr, @"Video:.*\b720x1280\b", RegexOptions.IgnoreCase);
 }
 
 static string BuildSyntheticDraftJson()

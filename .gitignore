@@ -6,3 +6,10 @@ cache/
 dist/settings.json
 dist/cache/
 *.processing.mp4
+release/
+
+# Local verification screenshots and transcoding outputs
+/artifacts/
+
+# Local upstream source checkout
+/third_party/

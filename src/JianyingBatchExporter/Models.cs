@@ -6,7 +6,8 @@ public enum VerticalMode
 {
     CenterCrop,
     BlurredBackground,
-    BlackBars
+    BlackBars,
+    None
 }
 
 public enum WorkspaceMode
@@ -14,6 +15,30 @@ public enum WorkspaceMode
     FolderBatch,
     JianyingDraft
 }
+
+public enum RotationDirection
+{
+    None,
+    Clockwise,
+    CounterClockwise
+}
+
+public enum VideoFilterPreset
+{
+    None,
+    Bright,
+    Vivid,
+    Warm,
+    Cool,
+    BlackAndWhite
+}
+public enum CompressionPreset
+{
+    Efficient576p = 0,
+    HighQuality1080p = 1,
+    Efficient720p = 2
+}
+
 
 public sealed record BatchVideoItem(int Index, string InputPath)
 {
@@ -110,12 +135,17 @@ public sealed record RelativePoint(int X, int Y);
 public sealed class AppSettings
 {
     public string InputFolder { get; set; } = string.Empty;
-    public string OutputFolder { get; set; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.MyVideos),
-        "JianyingBatchExports");
-    public VerticalMode VerticalMode { get; set; } = VerticalMode.BlurredBackground;
-    public decimal Speed { get; set; } = 1.1m;
+    public string OutputFolder { get; set; } = string.Empty;
+    public VerticalMode VerticalMode { get; set; } = VerticalMode.BlackBars;
+    public RotationDirection RotationDirection { get; set; } = RotationDirection.None;
+    public int RotationDegrees { get; set; }
+    public int ZoomPercent { get; set; } = 100;
+    public VideoFilterPreset VideoFilterPreset { get; set; } = VideoFilterPreset.None;
+    public CompressionPreset CompressionPreset { get; set; } = CompressionPreset.Efficient576p;
+    public int VideoBitrateKbps { get; set; } = 2500;
+    public int AudioBitrateKbps { get; set; } = 128;
+    public decimal Speed { get; set; } = 1.0m;
     public bool WatermarkEnabled { get; set; } = true;
-    public string WatermarkImagePath { get; set; } = Path.Combine(AppContext.BaseDirectory, "watermark.png");
+    public string WatermarkImagePath { get; set; } = "watermark.png";
     public AutomationCalibration Calibration { get; set; } = new();
 }

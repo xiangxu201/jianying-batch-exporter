@@ -20,6 +20,7 @@ internal sealed class RoundedPanel : Panel
     protected override void OnPaint(PaintEventArgs e)
     {
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        e.Graphics.Clear(Parent?.BackColor ?? SystemColors.Control);
         using var path = CreatePath(ClientRectangle, CornerRadius);
         using var fill = new SolidBrush(BackColor);
         e.Graphics.FillPath(fill, path);
@@ -316,6 +317,18 @@ internal sealed class SlimProgressBar : Control
 internal sealed class DarkComboBox : ComboBox
 {
     private const int WmPaint = 0x000F;
+    private const int WmLeftButtonDown = 0x0201;
+    private const int WmMouseWheel = 0x020A;
+    private const int CbShowDropDown = 0x014F;
+    private readonly ContextMenuStrip _menu = new()
+    {
+        ShowImageMargin = false,
+        ShowCheckMargin = false,
+        BackColor = Color.FromArgb(30, 34, 40),
+        ForeColor = Color.FromArgb(242, 244, 247),
+        Padding = new Padding(4),
+        AutoSize = false
+    };
 
     public Color FieldColor { get; set; } = Color.FromArgb(37, 40, 45);
     public Color HoverColor { get; set; } = Color.FromArgb(48, 52, 58);
@@ -329,19 +342,18 @@ internal sealed class DarkComboBox : ComboBox
         DropDownStyle = ComboBoxStyle.DropDownList;
         DrawMode = DrawMode.OwnerDrawFixed;
         FlatStyle = FlatStyle.Flat;
-        IntegralHeight = false;
+        IntegralHeight = true;
+        MaxDropDownItems = 16;
         ItemHeight = 30;
-        DropDownHeight = 240;
         BackColor = FieldColor;
         ForeColor = Color.FromArgb(242, 244, 247);
+        _menu.Renderer = new SpeedDropDown.DarkMenuRenderer();
+        _menu.Closed += (_, _) => Invalidate();
     }
 
     protected override void OnResize(EventArgs e)
     {
         base.OnResize(e);
-        if (Width <= 0 || Height <= 0) return;
-        using var path = RoundedRectangle(new Rectangle(0, 0, Width, Height), CornerRadius);
-        Region = new Region(path);
         Invalidate();
     }
 
@@ -366,21 +378,80 @@ internal sealed class DarkComboBox : ComboBox
         }
     }
 
+    private void OpenDropDownMenu()
+    {
+        if (_menu.Visible)
+        {
+            _menu.Close();
+            return;
+        }
+
+        RebuildDropDownMenu();
+        if (_menu.Items.Count == 0) return;
+        Focus();
+        var y = Items.Count > 5 ? -_menu.Height - 4 : Height + 4;
+        _menu.Show(this, new Point(0, y));
+        Invalidate();
+    }
+
+    private void RebuildDropDownMenu()
+    {
+        _menu.Items.Clear();
+        for (var index = 0; index < Items.Count; index++)
+        {
+            var capturedIndex = index;
+            var selected = index == SelectedIndex;
+            var menuItem = new ToolStripMenuItem(GetItemText(Items[index]))
+            {
+                AutoSize = false,
+                Size = new Size(Math.Max(120, Width - 8), ItemHeight),
+                BackColor = Color.FromArgb(30, 34, 40),
+                ForeColor = selected ? AccentColor : ForeColor,
+                Font = new Font(Font, selected ? FontStyle.Bold : FontStyle.Regular),
+                Padding = new Padding(10, 0, 8, 0)
+            };
+            menuItem.Click += (_, _) => SelectedIndex = capturedIndex;
+            _menu.Items.Add(menuItem);
+        }
+
+        _menu.Size = new Size(Width, _menu.Items.Count * ItemHeight + 10);
+    }
+
     protected override void WndProc(ref Message m)
     {
+        if (m.Msg == WmMouseWheel) return;
+        if ((m.Msg == WmLeftButtonDown || (m.Msg == CbShowDropDown && m.WParam != IntPtr.Zero)) && Enabled)
+        {
+            OpenDropDownMenu();
+            return;
+        }
+        if (m.Msg == CbShowDropDown && _menu.Visible)
+        {
+            _menu.Close();
+            return;
+        }
         base.WndProc(ref m);
         if (m.Msg != WmPaint || Width <= 0 || Height <= 0) return;
 
         using var graphics = CreateGraphics();
         graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        graphics.Clear(Parent?.BackColor ?? FieldColor);
         var arrowWidth = Math.Min(38, Width);
-        var arrowArea = new Rectangle(Width - arrowWidth, 2, arrowWidth - 2, Math.Max(0, Height - 4));
-        using var arrowBackground = new SolidBrush(FieldColor);
-        graphics.FillRectangle(arrowBackground, arrowArea);
-
         var borderBounds = new Rectangle(0, 0, Math.Max(0, Width - 1), Math.Max(0, Height - 1));
         using var borderPath = RoundedRectangle(borderBounds, CornerRadius);
-        using var border = new Pen(Focused ? FocusOutlineColor : OutlineColor);
+        using var background = new SolidBrush(FieldColor);
+        graphics.FillPath(background, borderPath);
+
+        var textBounds = new Rectangle(12, 0, Math.Max(0, Width - arrowWidth - 16), Height);
+        TextRenderer.DrawText(
+            graphics,
+            SelectedItem is null ? string.Empty : GetItemText(SelectedItem),
+            Font,
+            textBounds,
+            Enabled ? ForeColor : Color.FromArgb(112, 118, 128),
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+
+        using var border = new Pen(Focused || _menu.Visible ? FocusOutlineColor : OutlineColor);
         graphics.DrawPath(border, borderPath);
 
         using var arrowPen = new Pen(Color.FromArgb(184, 191, 201), 1.6F)
@@ -414,6 +485,12 @@ internal sealed class DarkComboBox : ComboBox
     {
         base.OnSelectedIndexChanged(e);
         Invalidate();
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) _menu.Dispose();
+        base.Dispose(disposing);
     }
 
     private static GraphicsPath RoundedRectangle(Rectangle bounds, int radius)
@@ -632,7 +709,7 @@ internal sealed class SpeedDropDown : Control
         return path;
     }
 
-    private sealed class DarkMenuRenderer : ToolStripProfessionalRenderer
+    internal sealed class DarkMenuRenderer : ToolStripProfessionalRenderer
     {
         protected override void OnRenderToolStripBackground(ToolStripRenderEventArgs e)
         {

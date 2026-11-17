@@ -5,10 +5,13 @@ internal static class Program
     [STAThread]
     private static void Main()
     {
-        var logPath = Path.Combine(AppContext.BaseDirectory, "startup.log");
+        var logDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "JianyingBatchExporter");
+        var logPath = Path.Combine(logDirectory, "startup.log");
         void Log(string message)
         {
-            try { File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {message}{Environment.NewLine}"); }
+            try { Directory.CreateDirectory(logDirectory); File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {message}{Environment.NewLine}"); }
             catch { }
         }
 
@@ -16,7 +19,7 @@ internal static class Program
         Application.ThreadException += (_, args) =>
         {
             Log("UI THREAD ERROR" + Environment.NewLine + args.Exception);
-            MessageBox.Show(args.Exception.ToString(), "剪映导出助手发生错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            MessageBox.Show(args.Exception.ToString(), "批量处理助手发生错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
         };
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
             Log("UNHANDLED ERROR" + Environment.NewLine + args.ExceptionObject);
@@ -36,7 +39,7 @@ internal static class Program
             Log("STARTUP ERROR" + Environment.NewLine + exception);
             MessageBox.Show(
                 $"程序启动失败：{exception.Message}{Environment.NewLine}{Environment.NewLine}详细日志：{logPath}",
-                "无法启动剪映导出助手",
+                "无法启动批量处理助手",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
             Environment.ExitCode = 1;

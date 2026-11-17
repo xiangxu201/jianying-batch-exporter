@@ -8,6 +8,12 @@
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <AssemblyName>JianyingBatchExporter</AssemblyName>
     <RootNamespace>JianyingBatchExporter</RootNamespace>
+    <Title>批量处理助手</Title>
+    <AssemblyTitle>批量处理助手</AssemblyTitle>
+    <Product>批量处理助手</Product>
+    <Version>2.9.0</Version>
+    <AssemblyVersion>2.9.0.0</AssemblyVersion>
+    <FileVersion>2.9.0.0</FileVersion>
     <ApplicationIcon>Assets\JianyingBatchExporter.ico</ApplicationIcon>
   </PropertyGroup>
 
@@ -26,13 +32,37 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
+    <Content Include="Assets\免安装版说明.txt">
+      <Link>免安装版说明.txt</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
     <Content Include="..\..\tools\jy-draftc\jy-draftc-amd64-windows\jy-draftc.exe">
       <Link>tools\jy-draftc.exe</Link>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
     <Content Include="..\..\tools\jy-draftc\jy-draftc-amd64-windows\LICENSE">
       <Link>tools\jy-draftc.LICENSE.txt</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="..\..\tools\ffmpeg\ffmpeg.exe">
+      <Link>tools\ffmpeg.exe</Link>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="..\..\tools\ffmpeg\FFmpeg.LICENSE.txt">
+      <Link>tools\FFmpeg.LICENSE.txt</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="..\..\tools\ffmpeg\FFmpeg.SOURCE.txt">
+      <Link>tools\FFmpeg.SOURCE.txt</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
   </ItemGroup>
 </Project>

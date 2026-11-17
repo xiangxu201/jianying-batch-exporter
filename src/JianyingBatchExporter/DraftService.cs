@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 
 namespace JianyingBatchExporter;
@@ -8,14 +9,23 @@ public sealed class DraftService
     private readonly string _rootMetaPath;
     private readonly string _cacheDirectory;
     private readonly string _decryptToolPath;
+    private readonly string _runtimeToolDirectory;
 
     public DraftService()
     {
         _rootMetaPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "JianyingPro", "User Data", "Projects", "com.lveditor.draft", "root_meta_info.json");
-        _cacheDirectory = Path.Combine(AppContext.BaseDirectory, "cache");
+        _cacheDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "JianyingBatchExporter",
+            "cache");
         _decryptToolPath = Path.Combine(AppContext.BaseDirectory, "tools", "jy-draftc.exe");
+        _runtimeToolDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "JianyingBatchExporter",
+            "tools",
+            "jy-draftc");
     }
 
     public string? DetectJianyingInstallDirectory()
@@ -164,25 +174,20 @@ public sealed class DraftService
             ?? throw new InvalidOperationException("未找到包含 videoeditor.dll 的剪映安装目录。");
 
         Directory.CreateDirectory(_cacheDirectory);
-        var toolDirectory = Path.GetDirectoryName(_decryptToolPath)!;
-        await File.WriteAllTextAsync(
-            Path.Combine(toolDirectory, ".env"),
-            $"JY_INSTALL_DIR={installDirectory}{Environment.NewLine}",
-            cancellationToken);
-
         var stamp = File.GetLastWriteTimeUtc(draft.ContentPath).Ticks;
         var safeId = SanitizeFileName(draft.Id);
         var output = Path.Combine(_cacheDirectory, $"{safeId}-{stamp}.plain.json");
         if (File.Exists(output)) return output;
+        var runtimeToolPath = PrepareDecryptTool(installDirectory);
 
         var startInfo = new ProcessStartInfo
         {
-            FileName = _decryptToolPath,
+            FileName = runtimeToolPath,
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
-            WorkingDirectory = toolDirectory
+            WorkingDirectory = _runtimeToolDirectory
         };
         startInfo.ArgumentList.Add("-d");
         startInfo.ArgumentList.Add(draft.ContentPath);
@@ -203,6 +208,25 @@ public sealed class DraftService
         }
 
         return output;
+    }
+
+    private string PrepareDecryptTool(string installDirectory)
+    {
+        Directory.CreateDirectory(_runtimeToolDirectory);
+        var runtimeToolPath = Path.Combine(_runtimeToolDirectory, "jy-draftc.exe");
+        var source = new FileInfo(_decryptToolPath);
+        var target = new FileInfo(runtimeToolPath);
+        if (!target.Exists || target.Length != source.Length || target.LastWriteTimeUtc != source.LastWriteTimeUtc)
+        {
+            File.Copy(_decryptToolPath, runtimeToolPath, true);
+            File.SetLastWriteTimeUtc(runtimeToolPath, source.LastWriteTimeUtc);
+        }
+
+        var environmentPath = Path.Combine(_runtimeToolDirectory, ".env");
+        var environmentText = $"JY_INSTALL_DIR=\"{installDirectory}\"{Environment.NewLine}";
+        if (!File.Exists(environmentPath) || File.ReadAllText(environmentPath) != environmentText)
+            File.WriteAllText(environmentPath, environmentText, new UTF8Encoding(false));
+        return runtimeToolPath;
     }
 
     private static Dictionary<string, string> ReadMaterialNames(JsonElement root)

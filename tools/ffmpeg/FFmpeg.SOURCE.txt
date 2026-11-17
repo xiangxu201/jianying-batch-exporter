@@ -1,0 +1,17 @@
+FFmpeg GPL build source information
+
+Binary version: N-125716-g1b1f602699-20260722
+Binary archive: ffmpeg-master-latest-win64-gpl.zip
+Archive SHA256: B4958CFD4BEF7E321037001CF323510412C1BDF60439868D96EC79B48976AE0D
+Build provider: BtbN/FFmpeg-Builds
+Build scripts and dependency recipes:
+https://github.com/BtbN/FFmpeg-Builds
+
+FFmpeg source revision:
+https://github.com/FFmpeg/FFmpeg/commit/1b1f602699
+FFmpeg source:
+https://github.com/FFmpeg/FFmpeg
+x264 source:
+https://code.videolan.org/videolan/x264
+
+License: GNU GPL version 3 or later (see FFmpeg.LICENSE.txt)

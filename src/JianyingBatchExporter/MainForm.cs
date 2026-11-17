@@ -1,4 +1,4 @@
-﻿using System.ComponentModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
@@ -18,12 +18,17 @@ public sealed class MainForm : Form
     private static readonly Color PrimaryText = Color.FromArgb(242, 244, 247);
     private static readonly Color SecondaryText = Color.FromArgb(160, 165, 175);
     private static readonly Color Danger = Color.FromArgb(202, 76, 83);
+    private static readonly int[] VideoBitrateOptions = [500, 800, 1000, 1500, 1600, 2000, 2500, 3000, 4000, 5000, 6000, 8000];
+    private static readonly int[] AudioBitrateOptions = [64, 96, 128, 160, 192, 256, 320];
 
     private readonly DraftService _draftService = new();
     private readonly FolderBatchService _folderBatchService = new();
     private readonly FfmpegService _ffmpegService = new();
     private readonly JianyingAutomationService _automation = new();
-    private readonly string _settingsPath = Path.Combine(AppContext.BaseDirectory, "settings.json");
+    private readonly string _settingsPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "JianyingBatchExporter",
+        "settings.json");
 
     private AppSettings _settings = new();
     private WorkspaceMode _workspaceMode = WorkspaceMode.FolderBatch;
@@ -32,10 +37,10 @@ public sealed class MainForm : Form
     private CancellationTokenSource? _runCancellation;
     private bool _refreshingDrafts;
 
-    private readonly NavigationButton _folderNav = NewNavButton("▣   文件夹批量");
+    private readonly NavigationButton _folderNav = NewNavButton("▣   视频批量");
     private readonly NavigationButton _draftNav = NewNavButton("◫   剪映草稿");
     private readonly NavigationButton _helpButton = NewNavButton("？   使用说明");
-    private readonly Label _pageTitle = NewLabel("文件夹批量处理", 18F, FontStyle.Bold, PrimaryText);
+    private readonly Label _pageTitle = NewLabel("视频批量处理", 18F, FontStyle.Bold, PrimaryText);
     private readonly Label _pageSubtitle = NewLabel("把输入目录中的全部视频统一转换为竖版成品", 9.5F, FontStyle.Regular, SecondaryText);
     private readonly DarkScrollPanel _settingsScroll = new();
     private readonly Image? _appIconImage = LoadAppIcon();
@@ -43,6 +48,7 @@ public sealed class MainForm : Form
     private readonly RoundedPanel _folderSourceCard = NewCard(382, 174);
     private readonly RoundedPanel _draftSourceCard = NewCard(382, 258);
     private readonly RoundedPanel _calibrationCard = NewCard(382, 338);
+    private readonly RoundedPanel _visualEffectsCard = NewCard(382, 536);
     private readonly RoundedTextBox _inputFolder = NewTextBox();
     private readonly RoundedTextBox _outputFolder = NewTextBox();
     private readonly DarkComboBox _draftCombo = NewCombo();
@@ -55,7 +61,14 @@ public sealed class MainForm : Form
     private readonly AccentRadioButton _centerCropRadio = NewRadio("居中裁切");
     private readonly AccentRadioButton _blurRadio = NewRadio("模糊背景填充");
     private readonly AccentRadioButton _blackBarsRadio = NewRadio("完整画面加黑边");
+    private readonly DarkComboBox _rotationDirectionCombo = NewCombo();
+    private readonly RoundedTextBox _rotationDegrees = NewTextBox();
+    private readonly DarkComboBox _zoomCombo = NewCombo();
+    private readonly DarkComboBox _filterCombo = NewCombo();
     private readonly SpeedDropDown _speedPreset = NewSpeedDropDown();
+    private readonly DarkComboBox _compressionPresetCombo = NewCombo();
+    private readonly DarkComboBox _videoBitrateCombo = NewCombo();
+    private readonly DarkComboBox _audioBitrateCombo = NewCombo();
     private readonly RoundedTextBox _customSpeed = NewTextBox();
     private readonly AccentCheckBox _watermarkEnabled = NewCheckBox("为所有成品视频叠加图片水印");
     private readonly RoundedTextBox _watermarkPath = NewTextBox();
@@ -85,7 +98,7 @@ public sealed class MainForm : Form
 
     public MainForm()
     {
-        Text = "剪映批量导出助手";
+        Text = "批量处理助手";
         Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(1200, 760);
@@ -176,14 +189,14 @@ public sealed class MainForm : Form
         brand.Controls.Add(mark, 0, 0);
         brand.SetRowSpan(mark, 2);
 
-        var brandTitle = NewLabel("批量导出助手", 11.5F, FontStyle.Bold, PrimaryText);
+        var brandTitle = NewLabel("批量处理助手", 11.5F, FontStyle.Bold, PrimaryText);
         brandTitle.AutoSize = false;
         brandTitle.Dock = DockStyle.Fill;
         brandTitle.TextAlign = ContentAlignment.BottomLeft;
         brandTitle.Margin = Padding.Empty;
         brand.Controls.Add(brandTitle, 1, 0);
 
-        var brandVersion = NewLabel("DESKTOP  2.1", 7.5F, FontStyle.Bold, SecondaryText);
+        var brandVersion = NewLabel("DESKTOP  2.9", 7.5F, FontStyle.Bold, SecondaryText);
         brandVersion.AutoSize = false;
         brandVersion.Dock = DockStyle.Fill;
         brandVersion.TextAlign = ContentAlignment.TopLeft;
@@ -217,7 +230,7 @@ public sealed class MainForm : Form
         info.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         info.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
 
-        var note = NewLabel("两种工作方式\n\n文件夹批量  ·  直接处理\n剪映草稿  ·  保留滤镜与叠加", 8F, FontStyle.Regular, SecondaryText);
+        var note = NewLabel("两种工作方式\n\n视频批量  ·  直接处理\n剪映草稿  ·  保留滤镜与叠加", 8F, FontStyle.Regular, SecondaryText);
         note.Dock = DockStyle.Fill;
         note.Padding = new Padding(10, 0, 4, 18);
         note.AutoSize = false;
@@ -344,7 +357,7 @@ public sealed class MainForm : Form
         stack.Controls.Add(_folderSourceCard);
         stack.Controls.Add(_draftSourceCard);
         stack.Controls.Add(BuildTransformCard());
-        stack.Controls.Add(BuildSpeedCard());
+        stack.Controls.Add(BuildVisualEffectsCard());
         stack.Controls.Add(BuildWatermarkCard());
         stack.Controls.Add(BuildOutputCard());
         _calibrationCard.Margin = new Padding(0, 0, 0, 18);
@@ -357,31 +370,102 @@ public sealed class MainForm : Form
     {
         var card = NewCard(382, 350);
         card.Margin = new Padding(0, 0, 0, 18);
-        AddCardHeader(card, "画面适配", "输出固定为 1080 × 1920");
-        _centerCropOption = BuildModeOption(_centerCropRadio, "铺满画面，可能裁掉左右内容", 86);
-        _blurOption = BuildModeOption(_blurRadio, "保留主体，模糊画面铺底", 172);
-        _blackBarsOption = BuildModeOption(_blackBarsRadio, "完整画面，空白区域填黑", 258);
+        AddCardHeader(card, "画面适配", "输出为竖版 9:16 · 分辨率由压缩档位决定");
+        _blackBarsOption = BuildModeOption(_blackBarsRadio, "完整画面，空白区域填黑", 86);
+        _centerCropOption = BuildModeOption(_centerCropRadio, "铺满画面，可能裁掉左右内容", 172);
+        _blurOption = BuildModeOption(_blurRadio, "保留主体，模糊画面铺底", 258);
+        card.Controls.Add(_blackBarsOption);
         card.Controls.Add(_centerCropOption);
         card.Controls.Add(_blurOption);
-        card.Controls.Add(_blackBarsOption);
         return card;
     }
 
-    private Control BuildSpeedCard()
+
+    private Control BuildVisualEffectsCard()
     {
-        var card = NewCard(382, 156);
-        card.Margin = new Padding(0, 0, 0, 18);
-        AddCardHeader(card, "播放速度", "视频与音频同步变速");
+        _visualEffectsCard.Margin = new Padding(0, 0, 0, 18);
+        AddCardHeader(_visualEffectsCard, "处理参数", "画面调整仅视频批量 · 倍速、压缩与码率两种模式通用");
+
+        var directionLabel = NewLabel("旋转方向", 8F, FontStyle.Regular, SecondaryText);
+        directionLabel.Location = new Point(17, 80);
+        _visualEffectsCard.Controls.Add(directionLabel);
+        _rotationDirectionCombo.Items.AddRange(new object[] { "不旋转", "顺时针", "逆时针" });
+        _rotationDirectionCombo.Location = new Point(16, 106);
+        _rotationDirectionCombo.Size = new Size(168, 40);
+        _visualEffectsCard.Controls.Add(_rotationDirectionCombo);
+
+        var degreesLabel = NewLabel("旋转角度（1 - 359°）", 8F, FontStyle.Regular, SecondaryText);
+        degreesLabel.Location = new Point(199, 80);
+        _visualEffectsCard.Controls.Add(degreesLabel);
+        ConfigureRotationInput();
+        _rotationDegrees.Location = new Point(198, 106);
+        _rotationDegrees.Size = new Size(168, 40);
+        _visualEffectsCard.Controls.Add(_rotationDegrees);
+
+        var zoomLabel = NewLabel("中心缩放", 8F, FontStyle.Regular, SecondaryText);
+        zoomLabel.Location = new Point(17, 166);
+        _visualEffectsCard.Controls.Add(zoomLabel);
+        _zoomCombo.Items.AddRange(new object[] { "90%", "不缩放", "110%", "120%" });
+        _zoomCombo.Location = new Point(16, 192);
+        _zoomCombo.Size = new Size(168, 40);
+        _visualEffectsCard.Controls.Add(_zoomCombo);
+
+        var filterLabel = NewLabel("滤镜效果", 8F, FontStyle.Regular, SecondaryText);
+        filterLabel.Location = new Point(199, 166);
+        _visualEffectsCard.Controls.Add(filterLabel);
+        _filterCombo.Items.AddRange(new object[] { "无滤镜", "明亮", "鲜艳", "暖色", "冷色", "黑白" });
+        _filterCombo.Location = new Point(198, 192);
+        _filterCombo.Size = new Size(168, 40);
+        _visualEffectsCard.Controls.Add(_filterCombo);
+
+        var speedLabel = NewLabel("播放速度", 8F, FontStyle.Regular, SecondaryText);
+        speedLabel.Location = new Point(17, 252);
+        _visualEffectsCard.Controls.Add(speedLabel);
         _speedPreset.Items.AddRange(new object[] { "1.0x", "1.1x", "1.25x", "自定义" });
-        _speedPreset.Location = new Point(16, 88);
+        _speedPreset.Location = new Point(16, 278);
         _speedPreset.Size = new Size(350, 40);
-        card.Controls.Add(_speedPreset);
+        _visualEffectsCard.Controls.Add(_speedPreset);
         ConfigureSpeedInput();
-        _customSpeed.Location = new Point(246, 88);
+        _customSpeed.Location = new Point(246, 278);
         _customSpeed.Size = new Size(118, 40);
         _customSpeed.Visible = false;
-        card.Controls.Add(_customSpeed);
-        return card;
+        _visualEffectsCard.Controls.Add(_customSpeed);
+
+        var compressionLabel = NewLabel("输出压缩", 8F, FontStyle.Regular, SecondaryText);
+        compressionLabel.Location = new Point(17, 330);
+        _visualEffectsCard.Controls.Add(compressionLabel);
+        _compressionPresetCombo.Items.AddRange(new object[]
+        {
+            "576P",
+            "720P",
+            "1080P"
+        });
+        _compressionPresetCombo.Location = new Point(16, 356);
+        _compressionPresetCombo.Size = new Size(350, 40);
+        _visualEffectsCard.Controls.Add(_compressionPresetCombo);
+
+        var videoBitrateLabel = NewLabel("视频码率", 8F, FontStyle.Regular, SecondaryText);
+        videoBitrateLabel.Location = new Point(17, 416);
+        _visualEffectsCard.Controls.Add(videoBitrateLabel);
+        _videoBitrateCombo.Items.AddRange(VideoBitrateOptions.Select(value => (object)BitrateText(value)).ToArray());
+        _videoBitrateCombo.Location = new Point(16, 442);
+        _videoBitrateCombo.Size = new Size(168, 40);
+        _visualEffectsCard.Controls.Add(_videoBitrateCombo);
+
+        var audioBitrateLabel = NewLabel("音频码率", 8F, FontStyle.Regular, SecondaryText);
+        audioBitrateLabel.Location = new Point(199, 416);
+        _visualEffectsCard.Controls.Add(audioBitrateLabel);
+        _audioBitrateCombo.Items.AddRange(AudioBitrateOptions.Select(value => (object)BitrateText(value)).ToArray());
+        _audioBitrateCombo.Location = new Point(198, 442);
+        _audioBitrateCombo.Size = new Size(168, 40);
+        _visualEffectsCard.Controls.Add(_audioBitrateCombo);
+
+        var hint = NewLabel("切换分辨率会推荐码率；之后仍可手动调整", 7.8F, FontStyle.Regular, SecondaryText);
+        hint.Location = new Point(17, 500);
+        hint.AutoSize = false;
+        hint.Size = new Size(348, 22);
+        _visualEffectsCard.Controls.Add(hint);
+        return _visualEffectsCard;
     }
 
     private Control BuildWatermarkCard()
@@ -403,7 +487,7 @@ public sealed class MainForm : Form
         _browseWatermarkButton.Size = new Size(68, 40);
         card.Controls.Add(_browseWatermarkButton);
 
-        var hint = NewLabel("建议使用 1080 × 1920 透明 PNG", 7.8F, FontStyle.Regular, SecondaryText);
+        var hint = NewLabel("建议使用与压缩档位一致的透明 PNG", 7.8F, FontStyle.Regular, SecondaryText);
         hint.Location = new Point(17, 176);
         card.Controls.Add(hint);
         return card;
@@ -611,7 +695,7 @@ public sealed class MainForm : Form
         parent.Controls.Add(button);
     }
 
-    private static RoundedPanel BuildModeOption(RadioButton radio, string description, int top)
+    private RoundedPanel BuildModeOption(AccentRadioButton radio, string description, int top)
     {
         var option = new RoundedPanel
         {
@@ -632,8 +716,9 @@ public sealed class MainForm : Form
         hint.Size = new Size(296, 22);
         hint.TextAlign = ContentAlignment.TopLeft;
         option.Controls.Add(hint);
-        option.Click += (_, _) => radio.Checked = true;
-        hint.Click += (_, _) => radio.Checked = true;
+        radio.Click += (_, _) => ToggleModeOption(radio);
+        option.Click += (_, _) => ToggleModeOption(radio);
+        hint.Click += (_, _) => ToggleModeOption(radio);
         return option;
     }
 
@@ -714,6 +799,38 @@ public sealed class MainForm : Form
         _logBox.ScrollBars = RichTextBoxScrollBars.Vertical;
     }
 
+    private void ConfigureRotationInput()
+    {
+        _rotationDegrees.Text = "1";
+        _rotationDegrees.MaxLength = 3;
+        _rotationDegrees.PlaceholderText = "1 - 359";
+        _rotationDegrees.BackColor = SurfaceRaised;
+        _rotationDegrees.ForeColor = PrimaryText;
+        _rotationDegrees.Font = new Font("Microsoft YaHei UI", 9F);
+        _rotationDegrees.TextAlign = HorizontalAlignment.Center;
+        _rotationDegrees.KeyPress += (_, args) =>
+        {
+            if (!char.IsControl(args.KeyChar) && !char.IsDigit(args.KeyChar))
+                args.Handled = true;
+        };
+    }
+
+    private void UpdateVisualAdjustmentControlState()
+    {
+        var enabled = _workspaceMode == WorkspaceMode.FolderBatch && _runCancellation is null;
+        _rotationDirectionCombo.Enabled = enabled;
+        _zoomCombo.Enabled = enabled;
+        _filterCombo.Enabled = enabled;
+        UpdateRotationInputState();
+    }
+
+    private void UpdateRotationInputState()
+    {
+        _rotationDegrees.Enabled = _workspaceMode == WorkspaceMode.FolderBatch
+            && _rotationDirectionCombo.SelectedIndex > 0
+            && _runCancellation is null;
+    }
+
     private void ConfigureSpeedInput()
     {
         _customSpeed.Text = "1.10";
@@ -756,6 +873,8 @@ public sealed class MainForm : Form
             if (!_refreshingDrafts) await ScanSelectedDraftAsync();
         };
         _trackCombo.SelectedIndexChanged += (_, _) => BindSelectedTrack();
+        _rotationDirectionCombo.SelectedIndexChanged += (_, _) => UpdateRotationInputState();
+        _compressionPresetCombo.SelectedIndexChanged += (_, _) => ApplyRecommendedBitrates();
         _speedPreset.SelectedIndexChanged += (_, _) =>
         {
             var custom = _speedPreset.SelectedItem?.ToString() == "自定义";
@@ -791,9 +910,10 @@ public sealed class MainForm : Form
         _draftNav.Active = !isFolder;
         _folderSourceCard.Visible = isFolder;
         _draftSourceCard.Visible = !isFolder;
+        _visualEffectsCard.Visible = true;
         _calibrationCard.Visible = !isFolder;
         _previewButton.Visible = !isFolder;
-        _pageTitle.Text = isFolder ? "文件夹批量处理" : "剪映草稿分段导出";
+        _pageTitle.Text = isFolder ? "视频批量处理" : "剪映草稿分段导出";
         _pageSubtitle.Text = isFolder
             ? "输入一个目录，自动将其中全部视频输出为统一规格的竖版成品"
             : "由剪映原生渲染滤镜与多轨画面，再按主轨片段逐条输出";
@@ -809,6 +929,7 @@ public sealed class MainForm : Form
             ConfigureDraftColumns();
             BindSelectedTrack();
         }
+        UpdateVisualAdjustmentControlState();
         _settingsScroll.ScrollToTop();
     }
 
@@ -931,8 +1052,10 @@ public sealed class MainForm : Form
 
     private async Task StartFolderBatchAsync()
     {
+        if (!ValidateRotationSelection()) return;
         if (!ValidateSpeedSelection()) return;
         SyncSettingsFromUi();
+        if (!ValidateVerticalModeSelection()) return;
         if (!ValidateWatermarkSelection()) return;
         if (_batchItems.Count == 0)
         {
@@ -959,9 +1082,15 @@ public sealed class MainForm : Form
             $"将处理 {_batchItems.Count} 个视频\n\n" +
             $"输出目录：{output}\n" +
             $"画面：{VerticalModeText(_settings.VerticalMode)}\n" +
+            $"旋转：{RotationText(_settings.RotationDirection, _settings.RotationDegrees)}\n" +
+            $"缩放：{_settings.ZoomPercent}%\n" +
+            $"滤镜：{VideoFilterPresetText(_settings.VideoFilterPreset)}\n" +
+            $"压缩：{CompressionPresetText(_settings.CompressionPreset)}\n" +
+            $"视频码率：{BitrateText(_settings.VideoBitrateKbps)}\n" +
+            $"音频码率：{BitrateText(_settings.AudioBitrateKbps)}\n" +
             $"速度：{_settings.Speed:0.##}x\n" +
             $"水印：{WatermarkSummary()}\n" +
-            "规格：1080 × 1920 MP4",
+            $"规格：{OutputResolutionText(_settings.CompressionPreset)} MP4",
             "开始批量处理",
             MessageBoxButtons.OKCancel,
             MessageBoxIcon.Information);
@@ -972,6 +1101,8 @@ public sealed class MainForm : Form
         _runCancellation = new CancellationTokenSource();
         SetRunning(true);
         ResetStatuses();
+        var stopwatch = Stopwatch.StartNew();
+        AppendLog("文件夹批处理开始，计时已启动。 ");
         try
         {
             var log = new Progress<string>(AppendLog);
@@ -994,6 +1125,13 @@ public sealed class MainForm : Form
                 _batchItems,
                 output,
                 _settings.VerticalMode,
+                _settings.RotationDirection,
+                _settings.RotationDegrees,
+                _settings.ZoomPercent,
+                _settings.VideoFilterPreset,
+                _settings.CompressionPreset,
+                _settings.VideoBitrateKbps,
+                _settings.AudioBitrateKbps,
                 _settings.Speed,
                 WatermarkPathForProcessing(),
                 _ffmpegService,
@@ -1001,30 +1139,35 @@ public sealed class MainForm : Form
                 log,
                 _runCancellation.Token);
 
+            stopwatch.Stop();
+            var elapsed = FormatElapsedTime(stopwatch.Elapsed);
             _progressText.Text = summary.FailedCount == 0
-                ? $"处理完成 · {summary.TotalCount} / {summary.TotalCount}"
-                : $"处理完成 · {summary.CompletedCount} 成功，{summary.FailedCount} 失败";
-            MessageBox.Show(this,
-                summary.FailedCount == 0 ? $"全部 {summary.TotalCount} 个视频处理完成。\n\n{output}" : $"处理结束：{summary.CompletedCount} 个成功，{summary.FailedCount} 个失败。\n详情请查看运行记录。",
-                "批量处理完成",
-                MessageBoxButtons.OK,
+                ? $"处理完成 · {summary.TotalCount} / {summary.TotalCount} · 耗时 {elapsed}"
+                : $"处理完成 · {summary.CompletedCount} 成功，{summary.FailedCount} 失败 · 耗时 {elapsed}";
+            var completionMessage = summary.FailedCount == 0
+                ? $"全部 {summary.TotalCount} 个视频处理完成。\n\n总耗时：{elapsed}\n\n{output}"
+                : $"处理结束：{summary.CompletedCount} 个成功，{summary.FailedCount} 个失败。\n总耗时：{elapsed}\n\n详情请查看运行记录。";
+            MessageBox.Show(this, completionMessage, "批量处理完成", MessageBoxButtons.OK,
                 summary.FailedCount == 0 ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
             OpenOutputFolder(output);
         }
         catch (OperationCanceledException)
         {
-            _progressText.Text = "任务已停止 · 已完成文件会保留";
+            stopwatch.Stop();
+            _progressText.Text = $"任务已停止 · 已完成文件会保留 · 已耗时 {FormatElapsedTime(stopwatch.Elapsed)}";
             AppendLog("文件夹批处理已停止；已经完成的成品会保留。 ");
         }
         finally
         {
+            stopwatch.Stop();
+            AppendLog($"本次文件夹批处理总耗时：{FormatElapsedTime(stopwatch.Elapsed)}。 ");
             _runCancellation.Dispose();
             _runCancellation = null;
             SetRunning(false);
         }
     }
 
-    private async Task RefreshDraftsAsync(bool showLog)
+    private async Task RefreshDraftsAsync(bool interactive)
     {
         try
         {
@@ -1041,13 +1184,17 @@ public sealed class MainForm : Form
                 }
             }
             finally { _refreshingDrafts = false; }
-            if (showLog) AppendLog($"发现 {drafts.Count} 个本地剪映草稿。 ");
-            if (drafts.Count > 0) await ScanSelectedDraftAsync();
+            if (interactive) AppendLog($"发现 {drafts.Count} 个本地剪映草稿。 ");
+            if (drafts.Count > 0) await ScanSelectedDraftAsync(interactive);
         }
-        catch (Exception ex) { ShowError("读取剪映草稿列表失败", ex); }
+        catch (Exception ex)
+        {
+            if (interactive) ShowError("读取剪映草稿列表失败", ex);
+            else AppendLog($"启动时读取剪映草稿列表失败：{ex.Message}");
+        }
     }
 
-    private async Task ScanSelectedDraftAsync()
+    private async Task ScanSelectedDraftAsync(bool showError = true)
     {
         if (_draftCombo.SelectedItem is not DraftInfo draft) return;
         SetBusy(true, "正在只读解析剪映草稿…");
@@ -1069,7 +1216,12 @@ public sealed class MainForm : Form
             AppendLog($"草稿“{draft.Name}”读取成功：{_draftPlan.VideoTracks.Count} 条视频轨。 ");
             BindSelectedTrack();
         }
-        catch (Exception ex) { ShowError("扫描剪映草稿失败", ex); }
+        catch (Exception ex)
+        {
+            _draftPlan = null;
+            if (showError) ShowError("扫描剪映草稿失败", ex);
+            else AppendLog($"启动时扫描剪映草稿失败：{ex.Message}");
+        }
         finally { SetBusy(false); }
     }
 
@@ -1115,6 +1267,8 @@ public sealed class MainForm : Form
         }
         if (!ValidateSpeedSelection()) return;
         SyncSettingsFromUi();
+        if (!ValidateOutputFolderSelection()) return;
+        if (!ValidateVerticalModeSelection()) return;
         if (!ValidateWatermarkSelection()) return;
         if (!_settings.Calibration.IsComplete)
         {
@@ -1128,7 +1282,8 @@ public sealed class MainForm : Form
             $"1. 剪映当前打开的是“{_draftPlan.Draft.Name}”\n" +
             $"2. 剪映导出目录已经设置为：\n{rawFolder}\n" +
             $"3. 导出格式为 MP4，期间不要操作鼠标键盘\n\n" +
-            $"将导出 {track.Segments.Count} 条，最终为 1080 × 1920、{_settings.Speed:0.##}x。\n" +
+            $"将导出 {track.Segments.Count} 条，最终为 {OutputResolutionText(_settings.CompressionPreset)}、{_settings.Speed:0.##}x。\n" +
+            $"码率：视频 {BitrateText(_settings.VideoBitrateKbps)} / 音频 {BitrateText(_settings.AudioBitrateKbps)}\n" +
             $"水印：{WatermarkSummary()}",
             "确认开始",
             MessageBoxButtons.OKCancel,
@@ -1137,6 +1292,8 @@ public sealed class MainForm : Form
 
         _runCancellation = new CancellationTokenSource();
         SetRunning(true);
+        var stopwatch = Stopwatch.StartNew();
+        AppendLog("剪映草稿分段导出开始，计时已启动。 ");
         try
         {
             ResetStatuses();
@@ -1151,25 +1308,37 @@ public sealed class MainForm : Form
                 _settings.Calibration,
                 _settings.OutputFolder,
                 _settings.VerticalMode,
+                _settings.CompressionPreset,
+                _settings.VideoBitrateKbps,
+                _settings.AudioBitrateKbps,
                 _settings.Speed,
                 WatermarkPathForProcessing(),
                 _ffmpegService,
                 progress,
                 _runCancellation.Token);
-            _progressText.Text = $"导出完成 · {track.Segments.Count} / {track.Segments.Count}";
+            stopwatch.Stop();
+            var elapsed = FormatElapsedTime(stopwatch.Elapsed);
+            _progressText.Text = $"导出完成 · {track.Segments.Count} / {track.Segments.Count} · 耗时 {elapsed}";
             AppendLog("剪映草稿分段导出全部完成。 ");
             var finalFolder = Path.Combine(_settings.OutputFolder, "成品");
-            MessageBox.Show(this, finalFolder, "分段导出完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, $"成品目录：{finalFolder}\n\n总耗时：{elapsed}", "分段导出完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
             OpenOutputFolder(finalFolder);
         }
         catch (OperationCanceledException)
         {
-            _progressText.Text = "任务已停止 · 已完成文件会保留";
+            stopwatch.Stop();
+            _progressText.Text = $"任务已停止 · 已完成文件会保留 · 已耗时 {FormatElapsedTime(stopwatch.Elapsed)}";
             AppendLog("剪映导出已停止；已经完成的文件会保留。 ");
         }
-        catch (Exception ex) { ShowError("剪映批量导出中止", ex); }
+        catch (Exception ex)
+        {
+            stopwatch.Stop();
+            ShowError("剪映批量导出中止", ex);
+        }
         finally
         {
+            stopwatch.Stop();
+            AppendLog($"本次剪映草稿分段导出总耗时：{FormatElapsedTime(stopwatch.Elapsed)}。 ");
             _runCancellation.Dispose();
             _runCancellation = null;
             SetRunning(false);
@@ -1181,6 +1350,7 @@ public sealed class MainForm : Form
         try
         {
             SyncSettingsFromUi();
+            if (!ValidateOutputFolderSelection()) return;
             var rawFolder = Path.Combine(_settings.OutputFolder, "_jianying_raw");
             Directory.CreateDirectory(rawFolder);
             Clipboard.SetText(rawFolder);
@@ -1200,10 +1370,10 @@ public sealed class MainForm : Form
         AppendLog($"标定：{instruction}，3 秒后读取鼠标位置…");
         for (var second = 3; second > 0; second--)
         {
-            Text = $"{second} 秒后记录鼠标位置 · 剪映批量导出助手";
+            Text = $"{second} 秒后记录鼠标位置 · 批量处理助手";
             await Task.Delay(1000);
         }
-        Text = "剪映批量导出助手";
+        Text = "批量处理助手";
         try
         {
             var point = _automation.CaptureCursorRelativeToJianying();
@@ -1264,17 +1434,21 @@ public sealed class MainForm : Form
         try
         {
             if (File.Exists(_settingsPath))
-                _settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(_settingsPath)) ?? new AppSettings();
+                _settings = DeserializeSettings(File.ReadAllText(_settingsPath));
         }
         catch (JsonException) { _settings = new AppSettings(); }
         catch (IOException) { _settings = new AppSettings(); }
     }
+
+    private static AppSettings DeserializeSettings(string json) =>
+        JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
 
     private void SaveSettings()
     {
         try
         {
             SyncSettingsFromUi();
+            Directory.CreateDirectory(Path.GetDirectoryName(_settingsPath)!);
             File.WriteAllText(_settingsPath, JsonSerializer.Serialize(_settings, new JsonSerializerOptions { WriteIndented = true }));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { }
@@ -1287,6 +1461,47 @@ public sealed class MainForm : Form
         _centerCropRadio.Checked = _settings.VerticalMode == VerticalMode.CenterCrop;
         _blurRadio.Checked = _settings.VerticalMode == VerticalMode.BlurredBackground;
         _blackBarsRadio.Checked = _settings.VerticalMode == VerticalMode.BlackBars;
+        _rotationDirectionCombo.SelectedIndex = _settings.RotationDirection switch
+        {
+            RotationDirection.Clockwise => 1,
+            RotationDirection.CounterClockwise => 2,
+            _ => 0
+        };
+        if (_rotationDirectionCombo.SelectedIndex == 0)
+            _settings.RotationDegrees = 0;
+        else if (_settings.RotationDegrees is < 1 or > 359)
+            _settings.RotationDegrees = 1;
+        _rotationDegrees.Text = (_settings.RotationDegrees == 0 ? 1 : _settings.RotationDegrees).ToString();
+        if (_settings.ZoomPercent is not (90 or 100 or 110 or 120))
+            _settings.ZoomPercent = 100;
+        _zoomCombo.SelectedIndex = _settings.ZoomPercent switch
+        {
+            90 => 0,
+            110 => 2,
+            120 => 3,
+            _ => 1
+        };
+        _filterCombo.SelectedIndex = _settings.VideoFilterPreset switch
+        {
+            VideoFilterPreset.Bright => 1,
+            VideoFilterPreset.Vivid => 2,
+            VideoFilterPreset.Warm => 3,
+            VideoFilterPreset.Cool => 4,
+            VideoFilterPreset.BlackAndWhite => 5,
+            _ => 0
+        };
+        _compressionPresetCombo.SelectedIndex = _settings.CompressionPreset switch
+        {
+            CompressionPreset.Efficient720p => 1,
+            CompressionPreset.HighQuality1080p => 2,
+            _ => 0
+        };
+        var recommendedBitrates = RecommendedBitrates(_settings.CompressionPreset);
+        if (!VideoBitrateOptions.Contains(_settings.VideoBitrateKbps)) _settings.VideoBitrateKbps = recommendedBitrates.Video;
+        if (!AudioBitrateOptions.Contains(_settings.AudioBitrateKbps)) _settings.AudioBitrateKbps = recommendedBitrates.Audio;
+        _videoBitrateCombo.SelectedIndex = Array.IndexOf(VideoBitrateOptions, _settings.VideoBitrateKbps);
+        _audioBitrateCombo.SelectedIndex = Array.IndexOf(AudioBitrateOptions, _settings.AudioBitrateKbps);
+
         var preset = _settings.Speed switch
         {
             1.0m => "1.0x",
@@ -1303,6 +1518,7 @@ public sealed class MainForm : Form
         UpdateSpeedInputLayout();
         UpdateWatermarkControls();
         UpdateModeOptionStyles();
+        UpdateRotationInputState();
         UpdateCalibrationLabels();
     }
 
@@ -1311,6 +1527,15 @@ public sealed class MainForm : Form
         SetModeOptionStyle(_centerCropOption, _centerCropRadio.Checked);
         SetModeOptionStyle(_blurOption, _blurRadio.Checked);
         SetModeOptionStyle(_blackBarsOption, _blackBarsRadio.Checked);
+    }
+
+    private void ToggleModeOption(AccentRadioButton selected)
+    {
+        if (!selected.Enabled) return;
+        var shouldSelect = !selected.Checked;
+        _centerCropRadio.Checked = shouldSelect && ReferenceEquals(selected, _centerCropRadio);
+        _blurRadio.Checked = shouldSelect && ReferenceEquals(selected, _blurRadio);
+        _blackBarsRadio.Checked = shouldSelect && ReferenceEquals(selected, _blackBarsRadio);
     }
 
     private static void SetModeOptionStyle(RoundedPanel? panel, bool selected)
@@ -1324,15 +1549,59 @@ public sealed class MainForm : Form
     private void SyncSettingsFromUi()
     {
         _settings.InputFolder = _inputFolder.Text.Trim();
-        _settings.OutputFolder = string.IsNullOrWhiteSpace(_outputFolder.Text)
-            ? new AppSettings().OutputFolder
-            : _outputFolder.Text.Trim();
+        _settings.OutputFolder = _outputFolder.Text.Trim();
         _settings.VerticalMode = _centerCropRadio.Checked
             ? VerticalMode.CenterCrop
-            : _blackBarsRadio.Checked ? VerticalMode.BlackBars : VerticalMode.BlurredBackground;
+            : _blurRadio.Checked
+                ? VerticalMode.BlurredBackground
+                : _blackBarsRadio.Checked ? VerticalMode.BlackBars : VerticalMode.None;
+        _settings.RotationDirection = _rotationDirectionCombo.SelectedIndex switch
+        {
+            1 => RotationDirection.Clockwise,
+            2 => RotationDirection.CounterClockwise,
+            _ => RotationDirection.None
+        };
+        if (_settings.RotationDirection == RotationDirection.None)
+            _settings.RotationDegrees = 0;
+        else if (TryGetRotationDegrees(out var rotationDegrees))
+            _settings.RotationDegrees = rotationDegrees;
+        _settings.ZoomPercent = _zoomCombo.SelectedIndex switch
+        {
+            0 => 90,
+            2 => 110,
+            3 => 120,
+            _ => 100
+        };
+        _settings.VideoFilterPreset = _filterCombo.SelectedIndex switch
+        {
+            1 => VideoFilterPreset.Bright,
+            2 => VideoFilterPreset.Vivid,
+            3 => VideoFilterPreset.Warm,
+            4 => VideoFilterPreset.Cool,
+            5 => VideoFilterPreset.BlackAndWhite,
+            _ => VideoFilterPreset.None
+        };
+        _settings.CompressionPreset = SelectedCompressionPreset();
+        _settings.VideoBitrateKbps = VideoBitrateOptions[Math.Max(0, _videoBitrateCombo.SelectedIndex)];
+        _settings.AudioBitrateKbps = AudioBitrateOptions[Math.Max(0, _audioBitrateCombo.SelectedIndex)];
         if (TryGetSelectedSpeed(out var speed)) _settings.Speed = speed;
         _settings.WatermarkEnabled = _watermarkEnabled.Checked;
         _settings.WatermarkImagePath = _watermarkPath.Text.Trim();
+    }
+
+    private bool ValidateVerticalModeSelection()
+    {
+        if (_settings.VerticalMode != VerticalMode.None) return true;
+        MessageBox.Show(this, "请先选择一种画面适配方式。", "未选择画面适配", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        return false;
+    }
+
+    private bool ValidateOutputFolderSelection()
+    {
+        if (!string.IsNullOrWhiteSpace(_settings.OutputFolder)) return true;
+        MessageBox.Show(this, "请先选择输出目录。", "输出目录为空", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        _outputFolder.Focus();
+        return false;
     }
 
     private decimal SelectedSpeedFromPreset() => _speedPreset.SelectedItem?.ToString() switch
@@ -1341,6 +1610,27 @@ public sealed class MainForm : Form
         "1.25x" => 1.25m,
         _ => 1.1m
     };
+
+    private bool TryGetRotationDegrees(out int degrees)
+    {
+        if (_rotationDirectionCombo.SelectedIndex <= 0)
+        {
+            degrees = 0;
+            return true;
+        }
+
+        return int.TryParse(_rotationDegrees.Text.Trim(), out degrees)
+            && degrees is >= 1 and <= 359;
+    }
+
+    private bool ValidateRotationSelection()
+    {
+        if (TryGetRotationDegrees(out _)) return true;
+        MessageBox.Show(this, "旋转角度请输入 1 到 359 之间的整数。", "旋转角度不正确", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        _rotationDegrees.Focus();
+        _rotationDegrees.SelectAll();
+        return false;
+    }
 
     private bool TryGetSelectedSpeed(out decimal speed)
     {
@@ -1371,8 +1661,9 @@ public sealed class MainForm : Form
     private bool ValidateWatermarkSelection()
     {
         if (!_settings.WatermarkEnabled) return true;
-        if (!string.IsNullOrWhiteSpace(_settings.WatermarkImagePath)
-            && File.Exists(_settings.WatermarkImagePath))
+        var resolvedPath = WatermarkPathForProcessing();
+        if (!string.IsNullOrWhiteSpace(resolvedPath)
+            && File.Exists(resolvedPath))
             return true;
 
         MessageBox.Show(this, "已启用图片水印，但水印文件不存在。请重新选择水印图片。", "水印图片无效", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -1381,8 +1672,14 @@ public sealed class MainForm : Form
         return false;
     }
 
-    private string? WatermarkPathForProcessing() =>
-        _settings.WatermarkEnabled ? _settings.WatermarkImagePath : null;
+    private string? WatermarkPathForProcessing()
+    {
+        if (!_settings.WatermarkEnabled || string.IsNullOrWhiteSpace(_settings.WatermarkImagePath))
+            return null;
+        return Path.IsPathRooted(_settings.WatermarkImagePath)
+            ? _settings.WatermarkImagePath
+            : Path.Combine(AppContext.BaseDirectory, _settings.WatermarkImagePath);
+    }
 
     private string WatermarkSummary() =>
         _settings.WatermarkEnabled
@@ -1436,6 +1733,9 @@ public sealed class MainForm : Form
         _inputFolder.Enabled = !running;
         _outputFolder.Enabled = !running;
         _speedPreset.Enabled = !running;
+        _compressionPresetCombo.Enabled = !running;
+        _videoBitrateCombo.Enabled = !running;
+        _audioBitrateCombo.Enabled = !running;
         _customSpeed.ReadOnly = running || _speedPreset.SelectedItem?.ToString() != "自定义";
         _clearRecordsButton.Enabled = !running;
         _helpButton.Enabled = !running;
@@ -1445,6 +1745,7 @@ public sealed class MainForm : Form
         _centerCropRadio.Enabled = !running;
         _blurRadio.Enabled = !running;
         _blackBarsRadio.Enabled = !running;
+        UpdateVisualAdjustmentControlState();
         _stopButton.Enabled = running;
     }
 
@@ -1466,12 +1767,77 @@ public sealed class MainForm : Form
         MessageBox.Show(this, exception.Message, title, MessageBoxButtons.OK, MessageBoxIcon.Error);
     }
 
-    private static string VerticalModeText(VerticalMode mode) => mode switch
+    private static string VerticalModeText(VerticalMode mode) =>
+        mode == VerticalMode.None ? "未选择" : mode switch
     {
         VerticalMode.CenterCrop => "居中裁切",
         VerticalMode.BlackBars => "完整画面加黑边",
         _ => "模糊背景填充"
     };
+
+    private static string RotationText(RotationDirection direction, int degrees) => direction switch
+    {
+        RotationDirection.Clockwise => $"顺时针 {degrees}°",
+        RotationDirection.CounterClockwise => $"逆时针 {degrees}°",
+        _ => "不旋转"
+    };
+    private static string VideoFilterPresetText(VideoFilterPreset preset) => preset switch
+    {
+        VideoFilterPreset.Bright => "明亮",
+        VideoFilterPreset.Vivid => "鲜艳",
+        VideoFilterPreset.Warm => "暖色",
+        VideoFilterPreset.Cool => "冷色",
+        VideoFilterPreset.BlackAndWhite => "黑白",
+        _ => "无滤镜"
+    };
+    private static string CompressionPresetText(CompressionPreset preset) => preset switch
+    {
+        CompressionPreset.Efficient576p => "576P",
+        CompressionPreset.Efficient720p => "720P",
+        CompressionPreset.HighQuality1080p => "1080P",
+        _ => "576P"
+    };
+
+    private CompressionPreset SelectedCompressionPreset() => _compressionPresetCombo.SelectedIndex switch
+    {
+        1 => CompressionPreset.Efficient720p,
+        2 => CompressionPreset.HighQuality1080p,
+        _ => CompressionPreset.Efficient576p
+    };
+
+    private static (int Video, int Audio) RecommendedBitrates(CompressionPreset preset) => preset switch
+    {
+        CompressionPreset.Efficient720p => (4000, 128),
+        CompressionPreset.HighQuality1080p => (6000, 128),
+        _ => (2500, 128)
+    };
+
+    private void ApplyRecommendedBitrates()
+    {
+        var recommended = RecommendedBitrates(SelectedCompressionPreset());
+        _videoBitrateCombo.SelectedIndex = Array.IndexOf(VideoBitrateOptions, recommended.Video);
+        _audioBitrateCombo.SelectedIndex = Array.IndexOf(AudioBitrateOptions, recommended.Audio);
+    }
+
+    private static string BitrateText(int bitrateKbps) => $"{bitrateKbps} kbps";
+
+    private static string OutputResolutionText(CompressionPreset preset) => preset switch
+    {
+        CompressionPreset.Efficient576p => "576 × 1024",
+        CompressionPreset.Efficient720p => "720 × 1280",
+        _ => "1080 × 1920"
+    };
+
+
+    private static string FormatElapsedTime(TimeSpan elapsed)
+    {
+        var seconds = elapsed.Seconds + elapsed.Milliseconds / 1000d;
+        if (elapsed.TotalHours >= 1)
+            return $"{(int)elapsed.TotalHours} 小时 {elapsed.Minutes:00} 分 {seconds:00.0} 秒";
+        if (elapsed.TotalMinutes >= 1)
+            return $"{(int)elapsed.TotalMinutes} 分 {seconds:00.0} 秒";
+        return $"{elapsed.TotalSeconds:0.0} 秒";
+    }
 
     private static Image? LoadAppIcon()
     {
@@ -1571,10 +1937,7 @@ public sealed class MainForm : Form
         ForeColor = PrimaryText,
         BackColor = Color.Transparent,
         Font = new Font("Microsoft YaHei UI", 8.5F, FontStyle.Bold),
-        Cursor = Cursors.Hand
+        Cursor = Cursors.Hand,
+        AutoCheck = false
     };
 }
-
-
-
-
